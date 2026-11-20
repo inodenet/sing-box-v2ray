@@ -24,39 +24,39 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     outputs:
-      version: \${{ steps.resolve.outputs.version }}
-      tag: \${{ steps.resolve.outputs.tag }}
-      build: \${{ steps.resolve.outputs.build }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      build: ${{ steps.resolve.outputs.build }}
     steps:
       - name: Resolve stable upstream release
         id: resolve
         env:
-          GH_TOKEN: \${{ github.token }}
-          REQUESTED_VERSION: \${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           set -Eeuo pipefail
-          if [[ -n "\${REQUESTED_VERSION}" ]]; then
-            version="\${REQUESTED_VERSION#v}"
+          if [[ -n "${REQUESTED_VERSION}" ]]; then
+            version="${REQUESTED_VERSION#v}"
           else
-            version="$(gh api "repos/\${UPSTREAM_REPOSITORY}/releases/latest" --jq '.tag_name | ltrimstr("v")')"
+            version="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest" --jq '.tag_name | ltrimstr("v")')"
           fi
-          [[ "\${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-            echo "Invalid stable version: \${version}" >&2
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Invalid stable version: ${version}" >&2
             exit 1
           }
-          tag="v\${version}"
-          release="$(gh api "repos/\${UPSTREAM_REPOSITORY}/releases/tags/\${tag}")"
-          [[ "$(jq -r .draft <<<"\${release}")" == false ]]
-          [[ "$(jq -r .prerelease <<<"\${release}")" == false ]]
-          git ls-remote --exit-code --tags "https://github.com/\${UPSTREAM_REPOSITORY}.git" "refs/tags/\${tag}" >/dev/null
-          if gh release view "\${tag}" --repo "\${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+          tag="v${version}"
+          release="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/tags/${tag}")"
+          [[ "$(jq -r .draft <<<"${release}")" == false ]]
+          [[ "$(jq -r .prerelease <<<"${release}")" == false ]]
+          git ls-remote --exit-code --tags "https://github.com/${UPSTREAM_REPOSITORY}.git" "refs/tags/${tag}" >/dev/null
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             build=false
           else
             build=true
           fi
-          echo "version=\${version}" >>"\${GITHUB_OUTPUT}"
-          echo "tag=\${tag}" >>"\${GITHUB_OUTPUT}"
-          echo "build=\${build}" >>"\${GITHUB_OUTPUT}"
+          echo "version=${version}" >>"${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >>"${GITHUB_OUTPUT}"
+          echo "build=${build}" >>"${GITHUB_OUTPUT}"
 
   build:
     needs: resolve
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
-          ref: \${{ needs.resolve.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.tag }}
           path: upstream
           fetch-depth: 1
 
@@ -83,85 +83,85 @@ jobs:
 
       - name: Prepare upstream Cronet musl toolchain
         env:
-          ARCH: \${{ matrix.arch }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -Eeuo pipefail
           revision="$(tr -d '[:space:]' <upstream/.github/CRONET_GO_VERSION)"
-          [[ "\${revision}" =~ ^[a-f0-9]{40}$ ]]
-          git init "\${HOME}/cronet-go"
-          git -C "\${HOME}/cronet-go" remote add origin https://github.com/sagernet/cronet-go.git
-          git -C "\${HOME}/cronet-go" sparse-checkout set --no-cone '/*' '!/lib'
-          git -C "\${HOME}/cronet-go" fetch --depth=1 --filter=blob:none origin "\${revision}"
-          [[ "$(git -C "\${HOME}/cronet-go" rev-parse FETCH_HEAD)" == "\${revision}" ]]
-          git -C "\${HOME}/cronet-go" checkout --detach FETCH_HEAD
-          git -C "\${HOME}/cronet-go" submodule update --init --recursive --depth=1
-          rm -f "\${HOME}/cronet-go/naiveproxy/src/build/linux/sysroot_scripts/keyring.gpg"
+          [[ "${revision}" =~ ^[a-f0-9]{40}$ ]]
+          git init "${HOME}/cronet-go"
+          git -C "${HOME}/cronet-go" remote add origin https://github.com/sagernet/cronet-go.git
+          git -C "${HOME}/cronet-go" sparse-checkout set --no-cone '/*' '!/lib'
+          git -C "${HOME}/cronet-go" fetch --depth=1 --filter=blob:none origin "${revision}"
+          [[ "$(git -C "${HOME}/cronet-go" rev-parse FETCH_HEAD)" == "${revision}" ]]
+          git -C "${HOME}/cronet-go" checkout --detach FETCH_HEAD
+          git -C "${HOME}/cronet-go" submodule update --init --recursive --depth=1
+          rm -f "${HOME}/cronet-go/naiveproxy/src/build/linux/sysroot_scripts/keyring.gpg"
           (
-            cd "\${HOME}/cronet-go"
+            cd "${HOME}/cronet-go"
             GPG_TTY=/dev/null ./naiveproxy/src/build/linux/sysroot_scripts/generate_keyring.sh
-            go run ./cmd/build-naive --target="linux/\${ARCH}" --libc=musl download-toolchain
-            go run ./cmd/build-naive --target="linux/\${ARCH}" --libc=musl env
-          ) >>"\${GITHUB_ENV}"
+            go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl download-toolchain
+            go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl env
+          ) >>"${GITHUB_ENV}"
 
       - name: Build sing-box with V2Ray API
         working-directory: upstream
         env:
-          VERSION: \${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
           GOOS: linux
-          GOARCH: \${{ matrix.arch }}
+          GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "1"
         run: |
           set -Eeuo pipefail
           tags="$(tr -d '[:space:]' <release/DEFAULT_BUILD_TAGS_OTHERS),with_musl,with_v2ray_api"
           ldflags="$(tr '\n' ' ' <release/LDFLAGS)"
           upstream_commit="$(git rev-parse HEAD)"
-          mkdir -p "../dist/linux-\${GOARCH}"
-          go build -trimpath -tags "\${tags}" \
-            -ldflags "-X github.com/sagernet/sing-box/constant.Version=\${VERSION} \${ldflags} -s -w -buildid=" \
-            -o "../dist/linux-\${GOARCH}/sing-box" ./cmd/sing-box
-          cp LICENSE "../dist/linux-\${GOARCH}/LICENSE"
-          printf '%s\n' "\${tags}" >"../dist/linux-\${GOARCH}/BUILD_TAGS"
-          cat >"../dist/linux-\${GOARCH}/SBP_BUILD_INFO" <<EOF
+          mkdir -p "../dist/linux-${GOARCH}"
+          go build -trimpath -tags "${tags}" \
+            -ldflags "-X github.com/sagernet/sing-box/constant.Version=${VERSION} ${ldflags} -s -w -buildid=" \
+            -o "../dist/linux-${GOARCH}/sing-box" ./cmd/sing-box
+          cp LICENSE "../dist/linux-${GOARCH}/LICENSE"
+          printf '%s\n' "${tags}" >"../dist/linux-${GOARCH}/BUILD_TAGS"
+          cat >"../dist/linux-${GOARCH}/SBP_BUILD_INFO" <<EOF
           repository=https://github.com/inodenet/sing-box-v2ray
-          version=\${VERSION}
+          version=${VERSION}
           upstream_repository=https://github.com/SagerNet/sing-box
-          upstream_tag=v\${VERSION}
-          upstream_commit=\${upstream_commit}
+          upstream_tag=v${VERSION}
+          upstream_commit=${upstream_commit}
           with_v2ray_api=true
           EOF
 
       - name: Fetch the Cronet runtime pinned by upstream
         env:
-          ARCH: \${{ matrix.arch }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -Eeuo pipefail
           revision="$(tr -d '[:space:]' <upstream/.github/CRONET_GO_VERSION)"
-          [[ "\${revision}" =~ ^[a-f0-9]{40}$ ]]
-          cronet="\${RUNNER_TEMP}/cronet-go"
-          git init "\${cronet}"
-          git -C "\${cronet}" remote add origin https://github.com/sagernet/cronet-go.git
-          git -C "\${cronet}" sparse-checkout set --no-cone "/lib/linux_\${ARCH}/libcronet.so"
-          git -C "\${cronet}" fetch --depth=1 --filter=blob:none origin "\${revision}"
-          [[ "$(git -C "\${cronet}" rev-parse FETCH_HEAD)" == "\${revision}" ]]
-          git -C "\${cronet}" checkout --detach FETCH_HEAD
-          cp "\${cronet}/lib/linux_\${ARCH}/libcronet.so" "dist/linux-\${ARCH}/libcronet.so"
+          [[ "${revision}" =~ ^[a-f0-9]{40}$ ]]
+          cronet="${RUNNER_TEMP}/cronet-go"
+          git init "${cronet}"
+          git -C "${cronet}" remote add origin https://github.com/sagernet/cronet-go.git
+          git -C "${cronet}" sparse-checkout set --no-cone "/lib/linux_${ARCH}/libcronet.so"
+          git -C "${cronet}" fetch --depth=1 --filter=blob:none origin "${revision}"
+          [[ "$(git -C "${cronet}" rev-parse FETCH_HEAD)" == "${revision}" ]]
+          git -C "${cronet}" checkout --detach FETCH_HEAD
+          cp "${cronet}/lib/linux_${ARCH}/libcronet.so" "dist/linux-${ARCH}/libcronet.so"
 
       - name: Verify binary and V2Ray StatsService
         env:
-          ARCH: \${{ matrix.arch }}
-          VERSION: \${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -Eeuo pipefail
-          binary="dist/linux-\${ARCH}/sing-box"
-          test -s "\${binary}"
-          test -s "dist/linux-\${ARCH}/libcronet.so"
-          grep -Fxq 'with_v2ray_api=true' "dist/linux-\${ARCH}/SBP_BUILD_INFO"
-          strings "\${binary}" >"\${RUNNER_TEMP}/sing-box.strings"
-          grep -Fq 'v2ray.core.app.stats.command.StatsService' "\${RUNNER_TEMP}/sing-box.strings"
+          binary="dist/linux-${ARCH}/sing-box"
+          test -s "${binary}"
+          test -s "dist/linux-${ARCH}/libcronet.so"
+          grep -Fxq 'with_v2ray_api=true' "dist/linux-${ARCH}/SBP_BUILD_INFO"
+          strings "${binary}" >"${RUNNER_TEMP}/sing-box.strings"
+          grep -Fq 'v2ray.core.app.stats.command.StatsService' "${RUNNER_TEMP}/sing-box.strings"
 
-          if [[ "\${ARCH}" == amd64 ]]; then
-            "\${binary}" version | grep -Fq "sing-box version \${VERSION}"
-            cat >"\${RUNNER_TEMP}/stats.json" <<'JSON'
+          if [[ "${ARCH}" == amd64 ]]; then
+            "${binary}" version | grep -Fq "sing-box version ${VERSION}"
+            cat >"${RUNNER_TEMP}/stats.json" <<'JSON'
           {
             "log": { "disabled": true },
             "inbounds": [],
@@ -175,24 +175,24 @@ jobs:
             }
           }
           JSON
-            "\${binary}" check -c "\${RUNNER_TEMP}/stats.json"
-            "\${binary}" run -c "\${RUNNER_TEMP}/stats.json" >"\${RUNNER_TEMP}/sing-box.log" 2>&1 &
+            "${binary}" check -c "${RUNNER_TEMP}/stats.json"
+            "${binary}" run -c "${RUNNER_TEMP}/stats.json" >"${RUNNER_TEMP}/sing-box.log" 2>&1 &
             core_pid=$!
-            trap 'kill "\${core_pid}" 2>/dev/null || true' EXIT
+            trap 'kill "${core_pid}" 2>/dev/null || true' EXIT
 
-            mkdir -p "\${RUNNER_TEMP}/bin"
-            GOBIN="\${RUNNER_TEMP}/bin" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            mkdir -p "${RUNNER_TEMP}/bin"
+            GOBIN="${RUNNER_TEMP}/bin" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
               go install github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.3
             sed 's/^package experimental\.v2rayapi;/package v2ray.core.app.stats.command;/' \
-              upstream/experimental/v2rayapi/stats.proto >"\${RUNNER_TEMP}/stats.proto"
+              upstream/experimental/v2rayapi/stats.proto >"${RUNNER_TEMP}/stats.proto"
 
-            grpcurl_bin="\${RUNNER_TEMP}/bin/grpcurl"
+            grpcurl_bin="${RUNNER_TEMP}/bin/grpcurl"
             for _ in {1..30}; do
-              if "\${grpcurl_bin}" -plaintext -import-path "\${RUNNER_TEMP}" -proto stats.proto \
+              if "${grpcurl_bin}" -plaintext -import-path "${RUNNER_TEMP}" -proto stats.proto \
                 -d '{}' 127.0.0.1:18080 \
                 v2ray.core.app.stats.command.StatsService/GetSysStats \
                 | jq -e '(.Uptime // .uptime // null) != null' >/dev/null; then
-                "\${grpcurl_bin}" -plaintext -import-path "\${RUNNER_TEMP}" -proto stats.proto \
+                "${grpcurl_bin}" -plaintext -import-path "${RUNNER_TEMP}" -proto stats.proto \
                   -d '{"patterns":["user>>>sbp-smoke>>>traffic>>>.*"],"regexp":true}' \
                   127.0.0.1:18080 \
                   v2ray.core.app.stats.command.StatsService/QueryStats >/dev/null
@@ -200,35 +200,35 @@ jobs:
               fi
               sleep 1
             done
-            cat "\${RUNNER_TEMP}/sing-box.log" >&2
+            cat "${RUNNER_TEMP}/sing-box.log" >&2
             exit 1
           fi
 
       - name: Package architecture archive
         env:
-          ARCH: \${{ matrix.arch }}
-          VERSION: \${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -Eeuo pipefail
-          name="sing-box-\${VERSION}-linux-\${ARCH}"
-          mkdir -p "dist/\${name}"
-          cp "dist/linux-\${ARCH}/sing-box" \
-            "dist/linux-\${ARCH}/libcronet.so" \
-            "dist/linux-\${ARCH}/LICENSE" \
-            "dist/linux-\${ARCH}/BUILD_TAGS" \
-            "dist/linux-\${ARCH}/SBP_BUILD_INFO" \
-            "dist/\${name}/"
-          tar -C dist -czf "dist/\${name}.tar.gz" "\${name}"
-          (cd dist && sha256sum "\${name}.tar.gz" >"\${name}.tar.gz.sha256")
+          name="sing-box-${VERSION}-linux-${ARCH}"
+          mkdir -p "dist/${name}"
+          cp "dist/linux-${ARCH}/sing-box" \
+            "dist/linux-${ARCH}/libcronet.so" \
+            "dist/linux-${ARCH}/LICENSE" \
+            "dist/linux-${ARCH}/BUILD_TAGS" \
+            "dist/linux-${ARCH}/SBP_BUILD_INFO" \
+            "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          (cd dist && sha256sum "${name}.tar.gz" >"${name}.tar.gz.sha256")
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-\${{ matrix.arch }}
+          name: linux-${{ matrix.arch }}
           path: |
-            dist/linux-\${{ matrix.arch }}/
-            dist/sing-box-*-linux-\${{ matrix.arch }}.tar.gz
-            dist/sing-box-*-linux-\${{ matrix.arch }}.tar.gz.sha256
+            dist/linux-${{ matrix.arch }}/
+            dist/sing-box-*-linux-${{ matrix.arch }}.tar.gz
+            dist/sing-box-*-linux-${{ matrix.arch }}.tar.gz.sha256
           retention-days: 2
 
   publish:
@@ -243,27 +243,27 @@ jobs:
 
       - name: Assemble and verify release files
         env:
-          VERSION: \${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -Eeuo pipefail
           mkdir -p dist/linux-amd64 dist/linux-arm64 release
           for arch in amd64 arm64; do
-            cp -a "dist-download/linux-\${arch}/linux-\${arch}/." "dist/linux-\${arch}/"
-            cp "dist-download/linux-\${arch}/sing-box-\${VERSION}-linux-\${arch}.tar.gz"* release/
-            (cd release && sha256sum -c "sing-box-\${VERSION}-linux-\${arch}.tar.gz.sha256")
+            cp -a "dist-download/linux-${arch}/linux-${arch}/." "dist/linux-${arch}/"
+            cp "dist-download/linux-${arch}/sing-box-${VERSION}-linux-${arch}.tar.gz"* release/
+            (cd release && sha256sum -c "sing-box-${VERSION}-linux-${arch}.tar.gz.sha256")
           done
           (cd release && sha256sum ./*.tar.gz | sort -k2 >checksums.sha256)
 
       - name: Publish GitHub Release
         env:
-          GH_TOKEN: \${{ github.token }}
-          TAG: \${{ needs.resolve.outputs.tag }}
-          VERSION: \${{ needs.resolve.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -Eeuo pipefail
           upstream_commit="$(sed -n 's/^upstream_commit=//p' dist/linux-amd64/SBP_BUILD_INFO)"
           cat >release-notes.md <<EOF
-          Built from the exact upstream [SagerNet/sing-box \${TAG}](https://github.com/SagerNet/sing-box/releases/tag/\${TAG}) source commit \`\${upstream_commit}\`, using upstream default build tags plus \`with_musl\` and \`with_v2ray_api\`.
+          Built from the exact upstream [SagerNet/sing-box ${TAG}](https://github.com/SagerNet/sing-box/releases/tag/${TAG}) source commit \`${upstream_commit}\`, using upstream default build tags plus \`with_musl\` and \`with_v2ray_api\`.
 
           - Platforms: linux/amd64 and linux/arm64
           - Both archives include the upstream-pinned \`libcronet.so\` runtime
@@ -272,6 +272,6 @@ jobs:
 
           The release tag in this repository identifies the upstream version. The exact upstream source commit is recorded in each archive's \`SBP_BUILD_INFO\`.
           EOF
-          gh release create "\${TAG}" release/* \
-            --title "sing-box \${TAG} with V2Ray API" \
+          gh release create "${TAG}" release/* \
+            --title "sing-box ${TAG} with V2Ray API" \
             --notes-file release-notes.md
