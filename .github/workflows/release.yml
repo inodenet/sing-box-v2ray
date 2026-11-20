@@ -147,6 +147,14 @@ jobs:
           git -C "${cronet}" checkout --detach FETCH_HEAD
           cp "${cronet}/lib/linux_${ARCH}/libcronet.so" "dist/linux-${ARCH}/libcronet.so"
 
+      - name: Install musl runtime for AMD64 smoke tests
+        if: matrix.arch == 'amd64'
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes musl
+          test -e /lib/ld-musl-x86_64.so.1
+
       - name: Verify binary and V2Ray StatsService
         env:
           ARCH: ${{ matrix.arch }}
@@ -161,6 +169,7 @@ jobs:
           grep -Fq 'v2ray.core.app.stats.command.StatsService' "${RUNNER_TEMP}/sing-box.strings"
 
           if [[ "${ARCH}" == amd64 ]]; then
+            export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/dist/linux-${ARCH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
             "${binary}" version | grep -Fq "sing-box version ${VERSION}"
             cat >"${RUNNER_TEMP}/stats.json" <<'JSON'
           {
