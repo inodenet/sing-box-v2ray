@@ -174,13 +174,25 @@ jobs:
             cat >"${RUNNER_TEMP}/stats.json" <<'JSON'
           {
             "log": { "disabled": true },
-            "inbounds": [],
+            "inbounds": [{
+              "type": "socks",
+              "tag": "sbp-smoke-in",
+              "listen": "127.0.0.1",
+              "listen_port": 11080,
+              "users": [{
+                "username": "sbp-smoke",
+                "password": "sbp-smoke-password"
+              }]
+            }],
             "outbounds": [{ "type": "direct", "tag": "direct" }],
             "route": { "final": "direct" },
             "experimental": {
               "v2ray_api": {
                 "listen": "127.0.0.1:18080",
-                "stats": { "enabled": true, "users": ["sbp-smoke"] }
+                "stats": {
+                  "enabled": true,
+                  "users": ["sbp-smoke"]
+                }
               }
             }
           }
@@ -203,10 +215,58 @@ jobs:
                 v2ray.core.app.stats.command.StatsService/GetSysStats \
                 | jq -e '(.Uptime // .uptime // null) != null' >/dev/null; then
                 "${grpcurl_bin}" -plaintext -import-path "${RUNNER_TEMP}" -proto stats.proto \
-                  -d '{"patterns":["user>>>sbp-smoke>>>traffic>>>.*"],"regexp":true}' \
-                  127.0.0.1:18080 \
+                  -d '{}' 127.0.0.1:18080 \
                   v2ray.core.app.stats.command.StatsService/QueryStats >/dev/null
-                exit 0
+
+                mkdir -p "${RUNNER_TEMP}/www"
+                head -c 131072 /dev/urandom >"${RUNNER_TEMP}/www/payload.bin"
+                python3 -m http.server 18081 --bind 127.0.0.1 \
+                  --directory "${RUNNER_TEMP}/www" >"${RUNNER_TEMP}/http.log" 2>&1 &
+                http_pid=$!
+                trap 'kill "${core_pid}" "${http_pid}" 2>/dev/null || true' EXIT
+
+                for _ in {1..30}; do
+                  if curl --silent --fail http://127.0.0.1:18081/payload.bin \
+                    --output /dev/null; then
+                    break
+                  fi
+                  sleep 1
+                done
+
+                curl --fail --silent --show-error \
+                  --socks5-hostname "sbp-smoke:sbp-smoke-password@127.0.0.1:11080" \
+                  http://127.0.0.1:18081/payload.bin \
+                  --output "${RUNNER_TEMP}/downloaded.bin"
+                cmp "${RUNNER_TEMP}/www/payload.bin" "${RUNNER_TEMP}/downloaded.bin"
+
+                stats_file="${RUNNER_TEMP}/stats-after.json"
+                for _ in {1..10}; do
+                  "${grpcurl_bin}" -plaintext -import-path "${RUNNER_TEMP}" -proto stats.proto \
+                    -d '{}' 127.0.0.1:18080 \
+                    v2ray.core.app.stats.command.StatsService/QueryStats >"${stats_file}"
+
+                  if jq -e '
+                    any(.stat[]?;
+                      .name == "user>>>sbp-smoke>>>traffic>>>uplink" and
+                      ((.value | tonumber) > 0)
+                    ) and
+                    any(.stat[]?;
+                      .name == "user>>>sbp-smoke>>>traffic>>>downlink" and
+                      ((.value | tonumber) > 0)
+                    )
+                  ' "${stats_file}" >/dev/null; then
+                    jq -r '.stat[] | select(.name | startswith("user>>>sbp-smoke>>>traffic>>>")) |
+                      "(.name)=(.value)"' "${stats_file}"
+                    exit 0
+                  fi
+                  sleep 1
+                done
+
+                cat "${RUNNER_TEMP}/sing-box.log" >&2
+                cat "${RUNNER_TEMP}/http.log" >&2
+                cat "${stats_file}" >&2
+                echo "Per-user uplink/downlink counters did not increase after SOCKS5 traffic" >&2
+                exit 1
               fi
               sleep 1
             done
