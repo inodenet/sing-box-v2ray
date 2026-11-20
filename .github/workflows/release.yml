@@ -27,6 +27,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       tag: ${{ steps.resolve.outputs.tag }}
       build: ${{ steps.resolve.outputs.build }}
+      publish: ${{ steps.resolve.outputs.publish }}
     steps:
       - name: Resolve stable upstream release
         id: resolve
@@ -50,13 +51,19 @@ jobs:
           [[ "$(jq -r .prerelease <<<"${release}")" == false ]]
           git ls-remote --exit-code --tags "https://github.com/${UPSTREAM_REPOSITORY}.git" "refs/tags/${tag}" >/dev/null
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            publish=false
             build=false
           else
+            publish=true
+            build=true
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             build=true
           fi
           echo "version=${version}" >>"${GITHUB_OUTPUT}"
           echo "tag=${tag}" >>"${GITHUB_OUTPUT}"
           echo "build=${build}" >>"${GITHUB_OUTPUT}"
+          echo "publish=${publish}" >>"${GITHUB_OUTPUT}"
 
   build:
     needs: resolve
@@ -303,7 +310,7 @@ jobs:
 
   publish:
     needs: [resolve, build]
-    if: needs.resolve.outputs.build == 'true'
+    if: needs.resolve.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download architecture artifacts
