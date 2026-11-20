@@ -283,5 +283,6 @@ jobs:
           The release tag in this repository identifies the upstream version. The exact upstream source commit is recorded in each archive's \`SBP_BUILD_INFO\`.
           EOF
           gh release create "${TAG}" release/* \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "sing-box ${TAG} with V2Ray API" \
             --notes-file release-notes.md
