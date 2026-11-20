@@ -100,8 +100,8 @@ jobs:
             cd "${HOME}/cronet-go"
             GPG_TTY=/dev/null ./naiveproxy/src/build/linux/sysroot_scripts/generate_keyring.sh
             go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl download-toolchain
-            go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl env
-          ) >>"${GITHUB_ENV}"
+            go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl env >"${RUNNER_TEMP}/cronet-env.sh"
+          )
 
       - name: Build sing-box with V2Ray API
         working-directory: upstream
@@ -115,6 +115,7 @@ jobs:
           tags="$(tr -d '[:space:]' <release/DEFAULT_BUILD_TAGS_OTHERS),with_musl,with_v2ray_api"
           ldflags="$(tr '\n' ' ' <release/LDFLAGS)"
           upstream_commit="$(git rev-parse HEAD)"
+          source "${RUNNER_TEMP}/cronet-env.sh"
           mkdir -p "../dist/linux-${GOARCH}"
           go build -trimpath -tags "${tags}" \
             -ldflags "-X github.com/sagernet/sing-box/constant.Version=${VERSION} ${ldflags} -s -w -buildid=" \
