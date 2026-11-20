@@ -100,7 +100,7 @@ jobs:
             cd "${HOME}/cronet-go"
             GPG_TTY=/dev/null ./naiveproxy/src/build/linux/sysroot_scripts/generate_keyring.sh
             go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl download-toolchain
-            go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl env >"${RUNNER_TEMP}/cronet-env.sh"
+            go run ./cmd/build-naive --target="linux/${ARCH}" --libc=musl env --export >"${RUNNER_TEMP}/cronet-env.sh"
           )
 
       - name: Build sing-box with V2Ray API
