@@ -263,7 +263,7 @@ jobs:
                     )
                   ' "${stats_file}" >/dev/null; then
                     jq -r '.stat[] | select(.name | startswith("user>>>sbp-smoke>>>traffic>>>")) |
-                      "(.name)=(.value)"' "${stats_file}"
+                      (.name + "=" + (.value | tostring))' "${stats_file}"
                     exit 0
                   fi
                   sleep 1
