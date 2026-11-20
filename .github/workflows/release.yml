@@ -234,7 +234,7 @@ jobs:
                 done
 
                 curl --fail --silent --show-error \
-                  --socks5-hostname "sbp-smoke:sbp-smoke-password@127.0.0.1:11080" \
+                  --proxy "socks5h://sbp-smoke:sbp-smoke-password@127.0.0.1:11080" \
                   http://127.0.0.1:18081/payload.bin \
                   --output "${RUNNER_TEMP}/downloaded.bin"
                 cmp "${RUNNER_TEMP}/www/payload.bin" "${RUNNER_TEMP}/downloaded.bin"
